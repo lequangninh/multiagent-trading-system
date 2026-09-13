@@ -29,6 +29,4 @@ database:
 news:
   poll_interval_s: 300
   feeds:
-    - https://www.coindesk.com/arc/outboundfeeds/rss/
-    - https://www.theblock.co/rss.xml
     - https://www.binance.com/en/support/announcement/rss

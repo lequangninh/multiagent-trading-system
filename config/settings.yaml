@@ -24,3 +24,11 @@ risk:
   kill_switch: ./HALT
 redis:
   url: redis://localhost:6379/0
+database:
+  dsn: postgresql://swarm:swarm_local_only@localhost:5432/swarm
+news:
+  poll_interval_s: 300
+  feeds:
+    - https://www.coindesk.com/arc/outboundfeeds/rss/
+    - https://www.theblock.co/rss.xml
+    - https://www.binance.com/en/support/announcement/rss

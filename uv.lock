@@ -638,6 +638,7 @@ name = "swarm-trader"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "asyncpg" },
     { name = "ccxt" },
     { name = "numpy" },
@@ -653,6 +654,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp" },
     { name = "asyncpg" },
     { name = "ccxt" },
     { name = "numpy" },

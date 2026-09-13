@@ -2,7 +2,7 @@
 name = "swarm-trader"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-dependencies = ["ccxt", "pydantic>=2,<3", "asyncpg", "redis>=5", "pandas", "numpy", "pyyaml", "structlog", "pytest", "pytest-asyncio", "ruff"]
+dependencies = ["aiohttp", "ccxt", "pydantic>=2,<3", "asyncpg", "redis>=5", "pandas", "numpy", "pyyaml", "structlog", "pytest", "pytest-asyncio", "ruff"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

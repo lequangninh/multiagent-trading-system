@@ -35,3 +35,28 @@ market discovery, closed-minute backfill bounds, all websocket batch rows
 persisted, complete resampling buckets only, malformed RSS dates isolated,
 and `python -m swarm.data` for supervised feed/news ingestion with cleanup.
 Regression suite: 45 tests passed. Docker/database acceptance must run on the Mac.
+
+# M3 calculation conventions
+
+MarketState carries observation time, per-timeframe candles, latest book, news,
+and proposed quote size. Agents exclude unfinished candles and reject gapped or
+duplicate series. Signals use configuration-compatible agent names, observation
+ time, and TTL 300 seconds. No network, model calls, random sources, or wall clock.
+
+TIDAL compares latest 5m volume against the preceding 288 bars. Volume confidence
+is min(ratio/4,1) above a strict 2x threshold. Realised 15m volatility is RMS of
+three 5m log returns, compared with the prior rolling values' 90th percentile;
+confidence is min(current/(2*percentile),1), or 1 for a positive move from zero.
+NORO uses 96 typical prices weighted by volume for VWAP and population standard
+ deviation of 96 closes for the z-score. Zero total volume yields no signal.
+ZEPHR sorts book levels, reports quote depth within 0.5% of mid, walks both sides
+for size_quote/mid base units, and uses the worse mid-relative cost (including
+half-spread). Insufficient depth gives zero confidence. Books older than 60s or
+future-dated yield no signal. Crossed/empty books give zero confidence.
+Momentum emits only fresh EMA12/48 crossovers with Wilder ADX14 >=25; EMA seeds
+at first close, ADX uses Wilder smoothing. It needs >=49 closed 5m candles.
+These are research definitions, not evidence of profitable trading.
+
+M2 gate amendment authorized by user: replace fixed >=40,000 candles with all
+available testnet history and no missing minutes in the returned range. User
+verified 6,231/6,231 minutes, books for all symbols, and two working RSS sources.

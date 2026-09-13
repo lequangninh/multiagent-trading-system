@@ -8,7 +8,7 @@ from decimal import ROUND_DOWN, ROUND_UP, Decimal
 import ccxt
 import structlog
 
-from swarm.execution.exchange import read_retry
+from swarm.execution.exchange import read_retry, safe_error
 from swarm.models import Fill, Proposal, RiskDecision
 from swarm.risk.gate import Limits, PortfolioState, check
 
@@ -53,6 +53,7 @@ class OMS:
         self.state = empty_state()
         self.ready = False
         self.books, self.balance = {}, {}
+        self.stage = "initializing"
 
     async def start(self):
         self.state = await self.repository.load() or empty_state()
@@ -63,8 +64,10 @@ class OMS:
         await self.repository.save(self.state, fills)
 
     async def _market_snapshot(self):
+        self.stage = "fetch_balance"
         self.balance = await read_retry(self.exchange.fetch_balance)
         for symbol in self.symbols:
+            self.stage = "fetch_order_book"
             book = await read_retry(self.exchange.fetch_order_book, symbol, 20)
             if not book["bids"] or not book["asks"] or book["bids"][0][0] >= book["asks"][0][0]:
                 raise ValueError("Invalid market book")
@@ -230,6 +233,7 @@ class OMS:
             self.ready = False
             discrepancies, unresolved, new_fills = 0, 0, []
             try:
+                self.stage = "fetch_orders_and_trades"
                 for cid, local in list(self.state["orders"].items()):
                     if local["status"] == "rejected":
                         continue
@@ -335,6 +339,7 @@ class OMS:
                             lot["quantity"] = allowed
                             held -= allowed
                 # External orders reserve exchange balances; pause instead of taking ownership.
+                self.stage = "fetch_open_orders"
                 external = await read_retry(self.exchange.fetch_open_orders)
                 unresolved += sum(
                     o.get("clientOrderId") not in self.state["orders"] for o in external
@@ -348,6 +353,7 @@ class OMS:
                     size_quote=1,
                     signals=[],
                 )
+                self.stage = "portfolio_and_persistence"
                 self._portfolio(probe)
                 await self._save(new_fills)
                 self.ready = unresolved == 0
@@ -359,7 +365,7 @@ class OMS:
                 )
                 return unresolved
             except Exception as exc:
-                log.warning("reconcile_failed", error_type=type(exc).__name__)
+                log.warning("reconcile_failed", stage=self.stage, **safe_error(exc))
                 # Reload last durable state: in-memory fill IDs must not mask unsaved fills.
                 self.state = await self.repository.load() or empty_state()
                 return -1

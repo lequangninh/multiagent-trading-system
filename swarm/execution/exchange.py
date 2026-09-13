@@ -37,6 +37,9 @@ def create_exchange(config):
                 "defaultType": "spot",
                 "fetchMarkets": {"types": ["spot"]},
                 "fetchCurrencies": False,
+                # Account-wide reconciliation intentionally uses the higher-weight endpoint.
+                "fetchOpenOrders": {"warnWithoutSymbol": False},
+                "warnOnFetchOpenOrdersWithoutSymbol": False,
             },
         }
     )
@@ -60,3 +63,23 @@ class TestnetStream(ccxtpro.binance):
         if parsed.scheme != "https" or parsed.hostname not in TESTNET_HOSTS:
             raise ValueError("Non-testnet HTTP request blocked")
         return await super().fetch(url, method, headers, body)
+
+
+def safe_error(exc):
+    """Only allowlisted diagnostic fields; never print request URLs or credentials."""
+    import re
+
+    text = str(exc)
+    match = re.search(r'"code"\s*:\s*(-?\d+)', text)
+    code = int(match.group(1)) if match else None
+    hints = {
+        -1021: "check_local_clock",
+        -1022: "check_testnet_secret",
+        -2014: "check_testnet_key_format",
+        -2015: "check_testnet_key_permissions_or_ip",
+        -1003: "exchange_rate_limit",
+    }
+    hint = hints.get(code, "exchange_request_failed")
+    if "warnWithoutSymbol" in text or "warnOnFetchOpenOrdersWithoutSymbol" in text:
+        hint = "ccxt_accountwide_open_orders_warning"
+    return dict(error_type=type(exc).__name__, exchange_code=code, hint=hint)

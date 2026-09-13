@@ -136,3 +136,16 @@ Existing default consensus plus neutral/missing sentiment cannot exceed 2/3;
 --smoke-order explicitly tests execution through risk without changing weights.
 Unit tests use mocks. PostgreSQL locking/outbox and authenticated exchange
 integration require the user's local Docker/testnet verification.
+
+# M6 reconciliation startup fix
+
+The original account-wide fetch_open_orders() encountered CCXT's default
+warnWithoutSymbol exception. Explicitly acknowledge the account-wide request's
+higher weight while retaining CCXT rate limiting. Regression test runs real CCXT
+fetch_open_orders dispatch with only the final endpoint mocked. Error logs now
+include operation stage, numeric exchange code if present, and allowlisted hints;
+raw request/response text and credentials are never logged. Initial failed
+reconciliation stops the runner before issuing a smoke-order request.
+Verification: 17 execution tests and 124 full-suite tests passed; Ruff clean.
+The observed generic ExchangeError is consistent with this defect; if another
+exchange error remains, the new diagnostic fields identify it safely.

@@ -112,6 +112,8 @@ async def run(config, duration, smoke_order=False):
             oms = OMS(exchange, repo, config["universe"], Limits(**config["risk"]))
             try:
                 await oms.start()
+                if not oms.ready:
+                    raise RuntimeError("Initial reconciliation failed; see safe diagnostic log")
                 settings = config["consensus"]
                 consensus = Consensus(
                     store.pool, settings["weights"], settings["threshold"], settings["base_size"]

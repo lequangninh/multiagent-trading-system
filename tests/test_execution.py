@@ -218,3 +218,32 @@ def test_tick_prices_and_client_id_stability():
     assert price_at_tick(book, 0.01, "buy") == 100.01
     assert price_at_tick(book, 0.01, "sell") == 100.02
     assert client_id(decision().proposal) == client_id(decision().proposal)
+
+
+async def test_configured_ccxt_accountwide_open_orders(monkeypatch):
+    # Exercise real CCXT dispatch and warning logic, replacing only the HTTP call.
+    monkeypatch.setenv("BINANCE_TESTNET_API_KEY", "offline-fixture-key")
+    monkeypatch.setenv("BINANCE_TESTNET_API_SECRET", "offline-fixture-secret")
+    exchange = create_exchange(
+        {"exchange": {"sandbox": True, "urls": {"rest": "https://testnet.binance.vision/api"}}}
+    )
+    exchange.markets = {}
+    exchange.privateGetOpenOrders = AsyncMock(return_value=[])
+    try:
+        assert await exchange.fetch_open_orders() == []
+        exchange.privateGetOpenOrders.assert_awaited_once()
+    finally:
+        await exchange.close()
+
+
+def test_safe_error_excludes_sensitive_request_text():
+    from swarm.execution.exchange import safe_error
+
+    exc = ccxt.ExchangeError(
+        "https://example.com?signature=PRIVATE apiKey=SECRET "
+        '{"code":-2015,"msg":"sensitive request"}'
+    )
+    result = safe_error(exc)
+    assert result["exchange_code"] == -2015
+    assert result["hint"] == "check_testnet_key_permissions_or_ip"
+    assert "PRIVATE" not in str(result) and "SECRET" not in str(result)

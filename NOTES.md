@@ -22,3 +22,16 @@ Binance sandbox mode. RSS ingestion is deterministic and does not call an LLM.
 Binance Spot Testnet resets periodically. Therefore its available 1m history
 may be shorter than 30 days and the specification's fixed 40,000-row acceptance
 count may occasionally be impossible while still obeying its testnet-only rule.
+
+# M2 review correction
+
+Earlier passing tests used fake database transports and did not establish M2's
+acceptance gate. No 40,000-row result has been observed in this workspace.
+RSS URL availability and live websocket behavior also remain unverified.
+Do not infer that a short history is caused by a reset without checking the data.
+
+Review fixes: configuration validation before backfill resources, spot-only
+market discovery, closed-minute backfill bounds, all websocket batch rows
+persisted, complete resampling buckets only, malformed RSS dates isolated,
+and `python -m swarm.data` for supervised feed/news ingestion with cleanup.
+Regression suite: 45 tests passed. Docker/database acceptance must run on the Mac.

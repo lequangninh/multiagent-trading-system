@@ -16,7 +16,12 @@ class MarketFeed:
     def __init__(self, symbols: list[str], store: Store, *, exchange=None):
         self.symbols = symbols
         self.store = store
-        self.exchange = exchange or ccxtpro.binance({"enableRateLimit": True})
+        self.exchange = exchange or ccxtpro.binance(
+            {
+                "enableRateLimit": True,
+                "options": {"defaultType": "spot", "fetchMarkets": {"types": ["spot"]}},
+            }
+        )
         self.exchange.set_sandbox_mode(True)
         self._last_candle: dict[str, int] = {}
 
@@ -25,22 +30,24 @@ class MarketFeed:
             rows = await self.exchange.watch_ohlcv(symbol, "1m")
             if not rows:
                 continue
-            row = rows[-1]
-            previous = self._last_candle.get(symbol)
-            if previous is not None and row[0] - previous > 60_000:
-                log.warning("candle_gap", symbol=symbol, gap_ms=row[0] - previous)
-            self._last_candle[symbol] = row[0]
-            candle = Candle(
-                symbol=symbol,
-                ts=datetime.fromtimestamp(row[0] / 1000, timezone.utc),
-                open=row[1],
-                high=row[2],
-                low=row[3],
-                close=row[4],
-                volume=row[5],
-                timeframe="1m",
-            )
-            await self.store.upsert_candles([candle])
+            # Persist every returned update; keeping only the last row can lose a
+            # preceding candle's final close when a batch spans minute boundaries.
+            for row in sorted(rows, key=lambda row: row[0]):
+                previous = self._last_candle.get(symbol)
+                if previous is not None and row[0] - previous > 60_000:
+                    log.warning("candle_gap", symbol=symbol, gap_ms=row[0] - previous)
+                candle = Candle(
+                    symbol=symbol,
+                    ts=datetime.fromtimestamp(row[0] / 1000, timezone.utc),
+                    open=row[1],
+                    high=row[2],
+                    low=row[3],
+                    close=row[4],
+                    volume=row[5],
+                    timeframe="1m",
+                )
+                await self.store.upsert_candles([candle])
+                self._last_candle[symbol] = max(previous or row[0], row[0])
 
     async def _books(self, symbol: str) -> None:
         while True:

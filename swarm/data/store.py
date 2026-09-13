@@ -38,6 +38,8 @@ class Store:
     async def upsert_candles(self, candles: list[Candle]) -> None:
         if not candles:
             return
+        if any(c.timeframe != "1m" for c in candles):
+            raise ValueError("only canonical 1m candles may be stored")
         rows = [
             (c.symbol, c.ts, c.timeframe, c.open, c.high, c.low, c.close, c.volume) for c in candles
         ]
@@ -78,7 +80,11 @@ class Store:
                 first(open, ts) AS open, max(high) AS high, min(low) AS low,
                 last(close, ts) AS close, sum(volume) AS volume, '{tf}' AS timeframe
                 FROM candles WHERE symbol=$1 AND timeframe='1m' AND ts >= $2 AND ts < $3
-                GROUP BY symbol, time_bucket('{minutes} minutes', ts) ORDER BY ts"""
+                GROUP BY symbol, time_bucket('{minutes} minutes', ts)
+                HAVING count(*) = {minutes}
+                AND min(ts) = time_bucket('{minutes} minutes', ts)
+                AND max(ts) + interval '1 minute' <= $3
+                ORDER BY ts"""
         rows = await self.pool.fetch(query, symbol, start, end)
         return [Candle.model_validate(dict(row)) for row in rows]
 

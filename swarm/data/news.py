@@ -25,9 +25,15 @@ def parse_feed(payload: str, source: str) -> list[dict]:
         raw_date = item.findtext("pubDate")
         if not title or not url:
             continue
-        parsed = (
-            email.utils.parsedate_to_datetime(raw_date) if raw_date else datetime.now(timezone.utc)
-        )
+        try:
+            parsed = (
+                email.utils.parsedate_to_datetime(raw_date)
+                if raw_date
+                else datetime.now(timezone.utc)
+            )
+        except (ValueError, TypeError, OverflowError):
+            log.warning("rss_invalid_date", source=source, url=url)
+            continue
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         tags = sorted(

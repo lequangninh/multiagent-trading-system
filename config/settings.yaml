@@ -1,0 +1,26 @@
+universe: [BTC/USDT, ETH/USDT, SOL/USDT]
+timeframes: [1m, 5m, 15m]
+exchange:
+  sandbox: true
+  urls:
+    rest: https://testnet.binance.vision/api
+    websocket: wss://stream.testnet.binance.vision/ws
+consensus:
+  threshold: 0.70
+  base_size: 100
+  weights:
+    scanner: 1.0
+    fairvalue: 1.0
+    liquidity: 1.0
+    momentum: 1.0
+    sentiment: 1.0
+risk:
+  max_position_pct_equity: 0.10
+  max_gross_exposure_pct: 0.50
+  max_daily_drawdown_pct: 0.03
+  max_trades_per_hour: 20
+  max_slippage_bps: 15
+  min_time_between_same_symbol_s: 300
+  kill_switch: ./HALT
+redis:
+  url: redis://localhost:6379/0

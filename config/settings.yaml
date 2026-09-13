@@ -22,6 +22,10 @@ risk:
   max_slippage_bps: 15
   min_time_between_same_symbol_s: 300
   kill_switch: ./HALT
+backtest:
+  initial_cash: 10000
+  fee_rate: 0.001
+  output_dir: backtests
 redis:
   url: redis://localhost:6379/0
 database:

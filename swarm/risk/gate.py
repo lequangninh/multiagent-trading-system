@@ -41,6 +41,22 @@ def halt_present(limits: Limits) -> bool:
     return Path(limits.kill_switch).exists()
 
 
+def slippage_curve(levels, mid) -> list[tuple[float, float]]:
+    """Cumulative executable quote depth paired with the worst average cost so far (bps).
+
+    Shared by the live OMS and the backtester so both size against the same estimate.
+    """
+    quantity, quote, curve, ceiling = 0.0, 0.0, [], 0.0
+    for price, amount in levels:
+        if amount <= 0:
+            continue
+        quantity += amount
+        quote += amount * price
+        ceiling = max(ceiling, abs(quote / quantity - mid) / mid * 10000)
+        curve.append((quantity * mid, ceiling))
+    return curve
+
+
 def decide(proposal: Proposal, portfolio_state: PortfolioState, limits: Limits) -> RiskDecision:
     from datetime import UTC
 

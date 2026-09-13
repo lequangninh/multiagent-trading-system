@@ -149,3 +149,56 @@ reconciliation stops the runner before issuing a smoke-order request.
 Verification: 17 execution tests and 124 full-suite tests passed; Ruff clean.
 The observed generic ExchangeError is consistent with this defect; if another
 exchange error remains, the new diagnostic fields identify it safely.
+
+# M7 backtester
+
+`uv run python -m swarm.backtest --symbol BTC/USDT --days 30` replays every stored
+1m candle close as a decision point through the unchanged Scanner, FairValue,
+Liquidity and Momentum classes, `consensus.engine.propose`, and `risk.gate.decide`.
+Sentiment is replayed point-in-time from real (non-mock) `sentiment_scores` rows.
+Two helpers were extracted so live and replay share one definition rather than a
+copy: `risk.gate.slippage_curve` (the OMS's depth/cost curve) and
+`execution.oms.exit_reason` (take-profit +1.5x cost, stop-loss -1x, 4h time-stop).
+Existing OMS tests cover both after the extraction.
+
+Fills come from `backtest.sim.SimExchange`: taker fee 0.1% in quote, at most 50% of
+each displayed level is executable, so slippage is the average price versus mid
+from walking real depth, and orders that exhaust the 20 stored levels fill
+partially. Fills below a 5 USDT notional are skipped like the OMS minimum check.
+Managed exits sell the exact lot quantity so no dust accumulates. Exits pass
+through the same risk gate as entries (cooldown and rate limits apply, as in the
+OMS). The HALT file is deliberately ignored in replay; `decide` is called with
+`halted=False`. Votes are not written to the live `votes` table.
+
+Books are loaded as the last snapshot per minute (`Store.get_books`), which is all
+a minute-cadence replay can observe. Liquidity refuses books older than 60s and
+consensus requires a liquidity signal, so minutes without a fresh book cannot
+trade; the CLI prints the covered fraction. Marks use fresh-book mid, else the 1m
+close. Resampling to 5m/15m happens in memory with the same complete-bucket rule
+as `Store.get_candles`.
+
+Metrics: Sharpe is annualised from hourly equity returns (0 when undefined);
+`profit_factor`/`win_rate` are null with no losing/closing trades. Extra keys:
+`round_trips`, `gross_return_pct`, `net_return_pct`, `strategy_dead`, and
+`counters` (signals, proposals, per-rule verdicts, unfilled). The guard
+`fee_drag_pct > gross_return_pct` sets `strategy_dead` and prints the banner.
+
+Walk-forward (`--train 60d --test 30d --step 30d`) tunes over `default_grid()`
+(thresholds 0.5-0.9 x four directional presets) by net return on each train
+window only, then evaluates the following test window; test windows are
+compounded into one out-of-sample curve and per-window choices are stored under
+`walk_forward` in metrics.json. Agent signals are cached per (symbol, minute,
+base_size), so the grid costs one signal pass. `base_size` is not tuned.
+
+Verification: 137 tests pass (13 new); Ruff clean. The acceptance command wrote
+all three outputs. The local database holds 4.3 days of BTC candles but only 30
+minutes with book snapshots (the feed ran briefly), so the real-data run has zero
+trades and the guard is not applicable. Test synthetics: a sawtooth uptrend with
+the momentum preset gives 12 round trips, all take-profits, net positive; seeded
+driftless random walks with the fairvalue preset give >=10 trades, net negative,
+fees exceeding gross. Default settings (all weights 1, threshold 0.70) cannot trade
+without real sentiment, as noted in M6.
+
+Ideas, not implemented: synthetic-book fallback when no snapshot exists (would
+fabricate liquidity), tuning `base_size`, multi-symbol CLI runs (engine supports
+it), 5m decision cadence to speed long replays.

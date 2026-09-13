@@ -102,6 +102,40 @@ class Store:
                 data[side] = json.loads(data[side])
         return BookSnapshot.model_validate(data)
 
+    async def get_books(
+        self, symbol: str, start: datetime, end: datetime, *, per_minute: bool = True
+    ) -> list[BookSnapshot]:
+        """Historical snapshots in [start, end). By default the last snapshot per minute,
+        which is all a minute-cadence replay can observe and bounds memory on long ranges."""
+        if per_minute:
+            query = """SELECT DISTINCT ON (time_bucket('1 minute', ts)) symbol, ts, bids, asks
+                FROM book_snapshots WHERE symbol=$1 AND ts >= $2 AND ts < $3
+                ORDER BY time_bucket('1 minute', ts), ts DESC"""
+        else:
+            query = """SELECT symbol, ts, bids, asks FROM book_snapshots
+                WHERE symbol=$1 AND ts >= $2 AND ts < $3 ORDER BY ts"""
+        rows = await self.pool.fetch(query, symbol, start, end)
+        books = []
+        for row in rows:
+            data = dict(row)
+            for side in ("bids", "asks"):
+                if isinstance(data[side], str):
+                    data[side] = json.loads(data[side])
+            books.append(BookSnapshot.model_validate(data))
+        books.sort(key=lambda b: b.ts)
+        return books
+
+    async def get_sentiment_scores(self, symbol: str, start: datetime, end: datetime) -> list[dict]:
+        """Real (non-mock) sentiment rows in [start, end) for point-in-time replay."""
+        rows = await self.pool.fetch(
+            """SELECT symbol, ts, score, confidence, summary FROM sentiment_scores
+            WHERE symbol=$1 AND NOT is_mock AND ts >= $2 AND ts < $3 ORDER BY ts""",
+            symbol,
+            start,
+            end,
+        )
+        return [dict(row) for row in rows]
+
     async def get_news(self, since: datetime) -> list[dict]:
         rows = await self.pool.fetch(
             """SELECT ts, source, title, body, url, symbol_tags FROM news

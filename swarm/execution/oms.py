@@ -10,7 +10,7 @@ import structlog
 
 from swarm.execution.exchange import read_retry, safe_error
 from swarm.models import Fill, Proposal, RiskDecision
-from swarm.risk.gate import Limits, PortfolioState, check
+from swarm.risk.gate import Limits, PortfolioState, check, slippage_curve
 
 log = structlog.get_logger()
 ACTIVE = {"intent", "unknown", "open", "partially_filled"}
@@ -22,6 +22,23 @@ def client_id(proposal):
 
 def now_utc():
     return datetime.now(UTC)
+
+
+TIME_STOP_S = 14400
+
+
+def exit_reason(entry, cost_rate, bid, age_s):
+    """Managed-exit trigger shared by the live OMS and the backtester.
+
+    Take-profit at +1.5x the estimated round-trip cost, stop-loss at -1x, time-stop 4h.
+    """
+    if bid >= entry * (1 + 1.5 * cost_rate):
+        return "take_profit"
+    if bid <= entry * (1 - cost_rate):
+        return "stop_loss"
+    if age_s >= TIME_STOP_S:
+        return "time_stop"
+    return None
 
 
 def price_at_tick(book, tick, side):
@@ -118,15 +135,7 @@ class OMS:
                 t = datetime.fromisoformat(o["ts"])
                 last[o["symbol"]] = max(last.get(o["symbol"], t), t)
         levels = self.books[proposal.symbol]["asks" if proposal.direction == 1 else "bids"]
-        mid = self._mid(proposal.symbol)
-        quantity, quote, curve, ceiling = 0.0, 0.0, [], 0.0
-        for price, amount in levels:
-            if amount <= 0:
-                continue
-            quantity += amount
-            quote += amount * price
-            ceiling = max(ceiling, abs(quote / quantity - mid) / mid * 10000)
-            curve.append((quantity * mid, ceiling))
+        curve = slippage_curve(levels, self._mid(proposal.symbol))
         return PortfolioState(
             ts=now,
             equity=equity,
@@ -379,14 +388,11 @@ class OMS:
                 for o in self.state["orders"].values()
             ):
                 continue
-            symbol, entry = lot["symbol"], lot["entry"]
+            symbol = lot["symbol"]
             bid = self.books[symbol]["bids"][0][0]
             age = (self.clock() - datetime.fromisoformat(lot["ts"])).total_seconds()
-            if (
-                bid >= entry * (1 + 1.5 * lot["cost_rate"])
-                or bid <= entry * (1 - lot["cost_rate"])
-                or age >= 14400
-            ):
+            reason = exit_reason(lot["entry"], lot["cost_rate"], bid, age)
+            if reason:
                 p = Proposal(
                     symbol=symbol,
                     ts=self.clock(),
@@ -397,7 +403,7 @@ class OMS:
                 )
                 await self.submit(
                     RiskDecision(
-                        proposal=p, verdict="ALLOW", size_quote=p.size_quote, reason="managed_exit"
+                        proposal=p, verdict="ALLOW", size_quote=p.size_quote, reason=reason
                     ),
                     exit_lot=lid,
                 )

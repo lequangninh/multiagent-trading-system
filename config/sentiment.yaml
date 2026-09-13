@@ -1,0 +1,6 @@
+# Separate from settings.yaml to preserve your local RSS edits.
+model: gpt-5-nano
+interval_s: 300
+timeout_s: 30
+ttl_s: 600
+batch_limit: 50

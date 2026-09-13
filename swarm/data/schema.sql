@@ -32,3 +32,24 @@ CREATE TABLE IF NOT EXISTS news (
     PRIMARY KEY (source, url)
 );
 CREATE INDEX IF NOT EXISTS news_ts_idx ON news (ts DESC);
+
+CREATE TABLE IF NOT EXISTS sentiment_scores (
+    symbol text NOT NULL,
+    ts timestamptz NOT NULL,
+    score double precision NOT NULL CHECK (score BETWEEN -1 AND 1),
+    confidence double precision NOT NULL CHECK (confidence BETWEEN 0 AND 1),
+    summary text NOT NULL,
+    model text NOT NULL,
+    is_mock boolean NOT NULL,
+    PRIMARY KEY (symbol, ts, is_mock)
+);
+CREATE TABLE IF NOT EXISTS sentiment_batches (
+    is_mock boolean PRIMARY KEY,
+    last_attempt timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sentiment_seen (
+    source text NOT NULL,
+    url text NOT NULL,
+    is_mock boolean NOT NULL,
+    PRIMARY KEY (source, url, is_mock)
+);

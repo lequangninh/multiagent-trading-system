@@ -60,3 +60,30 @@ These are research definitions, not evidence of profitable trading.
 M2 gate amendment authorized by user: replace fixed >=40,000 candles with all
 available testnet history and no missing minutes in the returned range. User
 verified 6,231/6,231 minutes, books for all symbols, and two working RSS sources.
+
+# M4 sentiment
+
+Run `uv run python -m swarm.agents.sentiment --mock-llm` after ingesting RSS news.
+Settings are in config/sentiment.yaml to preserve local settings.yaml/RSS edits.
+Schema migration creates sentiment_scores, sentiment_seen and sentiment_batches.
+No fake news is inserted: the dry run reads existing news and saves clearly marked
+neutral mock scores. Mock and real result namespaces are separate. Inference runs
+only in refresh/run; analyze uses an in-memory copy of persisted scores, with no
+network/DB/LLM access and no renewed timestamps. Confidence is abs(score) times
+model confidence; TTL is 600 seconds from batch observation time.
+
+PostgreSQL advisory transaction locking reserves a persistent >=300-second quota
+before a single call for the full universe. Failed requests consume that quota;
+unseen rows are retried after cooldown. Scores and processed-news identities are
+saved atomically. New worker instances reload persisted cache on refresh.
+The client protocol accepts bounded news and an exact-universe JSON schema;
+validation rejects missing/extra symbols and invalid fields. Provider adapters
+must disable automatic retries. The shipped CLI only enables MockLLM under the
+spec's prohibition on real API keys. Real provider connectivity and cheapest-model
+status are not verified; gpt-5-nano is a configurable provisional default, not a
+claim that it is currently the cheapest available model. This milestone does not
+include a connected real provider. No API key was requested or used.
+
+Tests use a repository double and mocked inference. PostgreSQL concurrency and
+persistence still require live verification. M4 is not accepted until the user's
+mock dry run confirms persisted sentiment_scores rows on the Docker database.

@@ -53,3 +53,13 @@ CREATE TABLE IF NOT EXISTS sentiment_seen (
     is_mock boolean NOT NULL,
     PRIMARY KEY (source, url, is_mock)
 );
+
+CREATE TABLE IF NOT EXISTS votes (
+    id bigserial PRIMARY KEY,
+    agent text NOT NULL,
+    symbol text NOT NULL,
+    ts timestamptz NOT NULL,
+    signal jsonb NOT NULL,
+    resulting_score double precision NOT NULL
+);
+CREATE INDEX IF NOT EXISTS votes_symbol_ts_idx ON votes(symbol, ts DESC);

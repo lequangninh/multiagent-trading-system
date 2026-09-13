@@ -87,3 +87,38 @@ include a connected real provider. No API key was requested or used.
 Tests use a repository double and mocked inference. PostgreSQL concurrency and
 persistence still require live verification. M4 is not accepted until the user's
 mock dry run confirms persisted sentiment_scores rows on the Docker database.
+
+# M5 consensus and risk gate
+
+Consensus requires fresh scanner AND liquidity signals and multiplies their
+confidence into the directional weighted score. Missing directional agents
+contribute zero against the full configured directional weight denominator;
+this prevents missing votes from inflating confidence. TTL expiry is exclusive,
+future signals are ignored, and the latest signal per agent wins (first seen for
+identical timestamps). Proposals use base_size*abs(score). All submitted votes
+are recorded transactionally, including below-threshold decisions. Database
+failure prevents evaluate() from returning an executable proposal.
+
+Risk decide() is pure. check() is the filesystem/logging boundary and must be
+used by M6 for executable decisions. It snapshots HALT on every call and logs
+verdict, reason and approved size. A rejected decision always carries zero size.
+PortfolioState must include marked inventory plus pending buy reservations;
+M6 must serialize snapshot/decision/reservation and reserve approved exposure
+before the next decision. Without that accounting, any snapshot-based risk gate
+can race. Sell inventory must exclude quantities already reserved for other sells.
+Daily drawdown uses UTC day-start equity. The portfolio controller must latch
+any intraday breach in drawdown_breached_at, even if equity subsequently recovers,
+and provide a fresh baseline on the next UTC day; a stale baseline fails closed.
+No long-lived portfolio controller or execution pipeline is implemented in M5.
+
+Slippage curve entries are cumulative executable quote caps with conservative
+cost ceilings in basis points. Costs must be nondecreasing. Missing/invalid depth
+fails closed; sizing uses the largest tier within the limit, no extrapolation.
+Position and gross limits apply to increasing exposure; spot sells are bounded
+by available held inventory. HALT, drawdown and rate/cooldown vetoes apply to all.
+
+M5 gate: uv run pytest tests/test_consensus.py tests/test_risk.py -q
+25 tests passed. Tests cover every specified limit, resize boundaries, spot sells,
+TTL, absent filters, vote persistence, and repeated reserved-exposure proposals.
+PostgreSQL vote persistence uses a mocked connection in unit tests; it has not
+been exercised against Docker in this workspace.

@@ -122,3 +122,17 @@ M5 gate: uv run pytest tests/test_consensus.py tests/test_risk.py -q
 TTL, absent filters, vote persistence, and repeated reserved-exposure proposals.
 PostgreSQL vote persistence uses a mocked connection in unit tests; it has not
 been exercised against Docker in this workspace.
+
+# M6 execution
+
+User authorized testnet-only credentials configured locally on their Mac.
+M6_SETUP.md contains credential prompts, normal paper run and explicit smoke run.
+Implementation includes guarded HTTP exchange adapter, persistent intents and
+risk reservations, restart-safe daily drawdown state, managed bought-fill exits,
+reconciliation, SQL fill outbox, Redis decision consumption and bounded runner.
+No authenticated requests were made here; missing environment credentials fail
+startup. The required 600-second exchange-order acceptance remains pending on Mac.
+Existing default consensus plus neutral/missing sentiment cannot exceed 2/3;
+--smoke-order explicitly tests execution through risk without changing weights.
+Unit tests use mocks. PostgreSQL locking/outbox and authenticated exchange
+integration require the user's local Docker/testnet verification.

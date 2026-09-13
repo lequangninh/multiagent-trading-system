@@ -63,3 +63,24 @@ CREATE TABLE IF NOT EXISTS votes (
     resulting_score double precision NOT NULL
 );
 CREATE INDEX IF NOT EXISTS votes_symbol_ts_idx ON votes(symbol, ts DESC);
+
+CREATE TABLE IF NOT EXISTS oms_state (
+    id integer PRIMARY KEY CHECK (id=1),
+    payload jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS orders (
+    client_order_id text PRIMARY KEY,
+    symbol text NOT NULL,
+    ts timestamptz NOT NULL,
+    payload jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS positions (
+    symbol text PRIMARY KEY,
+    quantity double precision NOT NULL,
+    ts timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fills (
+    fill_id text PRIMARY KEY,
+    payload jsonb NOT NULL,
+    published boolean NOT NULL DEFAULT false
+);

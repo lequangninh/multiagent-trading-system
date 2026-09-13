@@ -1,4 +1,4 @@
-"""M1 configuration validation only; no order execution is wired yet."""
+"""Configuration guard and bounded Spot Testnet paper runner."""
 
 import argparse
 from pathlib import Path
@@ -54,18 +54,36 @@ def validate_config(config):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--mode", choices=["paper"])
+    parser.add_argument("--duration", type=int, default=600)
+    parser.add_argument(
+        "--smoke-order",
+        action="store_true",
+        help="Propose one 20 USDT testnet order through the risk gate",
+    )
     parser.add_argument(
         "--config", type=Path, default=Path(__file__).resolve().parents[1] / "config/settings.yaml"
     )
     args = parser.parse_args()
     try:
-        validate_config(yaml.safe_load(args.config.read_text()))
+        config = validate_config(yaml.safe_load(args.config.read_text()))
     except (ValueError, OSError, yaml.YAMLError) as exc:
         parser.exit(1, f"configuration rejected: {exc}\n")
     if args.check:
         print("config ok, sandbox=true")
+    elif args.mode == "paper":
+        import asyncio
+
+        from swarm.execution.paper import run
+
+        try:
+            asyncio.run(run(config, args.duration, args.smoke_order))
+        except KeyboardInterrupt:
+            parser.exit(130, "paper runner stopped; managed exits require a running process\n")
+        except Exception as exc:
+            parser.exit(1, f"paper runner stopped: {type(exc).__name__}\n")
     else:
-        parser.exit(1, "M1 skeleton: execution not implemented; use --check\n")
+        parser.error("use --check or --mode paper")
 
 
 if __name__ == "__main__":

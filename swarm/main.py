@@ -6,6 +6,11 @@ from urllib.parse import urlsplit
 
 import yaml
 
+from swarm.secrets import SecretError, expand, load_dotenv, refuse_placeholders
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SETTINGS = ROOT / "config/settings.yaml"
+
 TESTNET_HOSTS = {
     "testnet.binance.vision",
     "stream.testnet.binance.vision",
@@ -51,6 +56,14 @@ def validate_config(config):
     return config
 
 
+def load_config(path: Path = DEFAULT_SETTINGS) -> dict:
+    """Single startup path for every entrypoint: .env seed, placeholder refusal,
+    ${VAR} expansion from the environment, then the testnet-only guard."""
+    load_dotenv()
+    refuse_placeholders()
+    return validate_config(expand(yaml.safe_load(Path(path).read_text())))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
@@ -61,12 +74,10 @@ def main():
         action="store_true",
         help="Propose one 20 USDT testnet order through the risk gate",
     )
-    parser.add_argument(
-        "--config", type=Path, default=Path(__file__).resolve().parents[1] / "config/settings.yaml"
-    )
+    parser.add_argument("--config", type=Path, default=DEFAULT_SETTINGS)
     args = parser.parse_args()
     try:
-        config = validate_config(yaml.safe_load(args.config.read_text()))
+        config = load_config(args.config)
     except (ValueError, OSError, yaml.YAMLError) as exc:
         parser.exit(1, f"configuration rejected: {exc}\n")
     if args.check:
@@ -80,6 +91,9 @@ def main():
             asyncio.run(run(config, args.duration, args.smoke_order))
         except KeyboardInterrupt:
             parser.exit(130, "paper runner stopped; managed exits require a running process\n")
+        except (SecretError, ValueError, RuntimeError) as exc:
+            # Our own fixed-string messages; safe to show. Provider errors stay type-only.
+            parser.exit(1, f"paper runner stopped: {type(exc).__name__}: {exc}\n")
         except Exception as exc:
             parser.exit(1, f"paper runner stopped: {type(exc).__name__}\n")
     else:

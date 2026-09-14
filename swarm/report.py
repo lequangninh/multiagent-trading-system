@@ -9,8 +9,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import yaml
-
 HIT_RATE_SQL = """
 SELECT v.agent,
        count(*)::int AS votes,
@@ -202,7 +200,7 @@ async def main_async(config, days, out_dir):
 
 
 def main(argv=None):
-    from swarm.main import validate_config
+    from swarm.main import load_config
 
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
@@ -212,7 +210,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.days <= 0:
         parser.error("--days must be positive")
-    config = validate_config(yaml.safe_load(args.config.read_text()))
+    config = load_config(args.config)
     asyncio.run(main_async(config, args.days, args.out))
 
 

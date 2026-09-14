@@ -4,16 +4,13 @@ import argparse
 import asyncio
 from pathlib import Path
 
-import yaml
-
 from swarm.data.feed import MarketFeed
 from swarm.data.news import poll
 from swarm.data.store import Store
-from swarm.main import validate_config
+from swarm.main import DEFAULT_SETTINGS, load_config
 
 
 async def run(config):
-    validate_config(config)
     store = Store(config["database"]["dsn"])
     feed = None
     try:
@@ -34,11 +31,9 @@ async def run(config):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--config", type=Path, default=Path(__file__).resolve().parents[2] / "config/settings.yaml"
-    )
+    parser.add_argument("--config", type=Path, default=DEFAULT_SETTINGS)
     args = parser.parse_args()
-    asyncio.run(run(yaml.safe_load(args.config.read_text())))
+    asyncio.run(run(load_config(args.config)))
 
 
 if __name__ == "__main__":

@@ -207,7 +207,7 @@ async def test_final_http_boundary_blocks_mainnet():
 def test_missing_credentials_fail_without_network(monkeypatch):
     monkeypatch.delenv("BINANCE_TESTNET_API_KEY", raising=False)
     monkeypatch.delenv("BINANCE_TESTNET_API_SECRET", raising=False)
-    with pytest.raises(ValueError, match="locally"):
+    with pytest.raises(ValueError, match="is not set"):
         create_exchange(
             {"exchange": {"sandbox": True, "urls": {"rest": "https://testnet.binance.vision/api"}}}
         )

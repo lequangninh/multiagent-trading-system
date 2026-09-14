@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import ccxt.pro as ccxtpro
 import structlog
+from pydantic import ValidationError
 
 from swarm.data.store import Store
 from swarm.models import BookSnapshot, Candle
@@ -36,16 +37,21 @@ class MarketFeed:
                 previous = self._last_candle.get(symbol)
                 if previous is not None and row[0] - previous > 60_000:
                     log.warning("candle_gap", symbol=symbol, gap_ms=row[0] - previous)
-                candle = Candle(
-                    symbol=symbol,
-                    ts=datetime.fromtimestamp(row[0] / 1000, timezone.utc),
-                    open=row[1],
-                    high=row[2],
-                    low=row[3],
-                    close=row[4],
-                    volume=row[5],
-                    timeframe="1m",
-                )
+                try:
+                    candle = Candle(
+                        symbol=symbol,
+                        ts=datetime.fromtimestamp(row[0] / 1000, timezone.utc),
+                        open=row[1],
+                        high=row[2],
+                        low=row[3],
+                        close=row[4],
+                        volume=row[5],
+                        timeframe="1m",
+                    )
+                except (ValidationError, ValueError, TypeError, IndexError) as exc:
+                    # A zero or inverted OHLC row is dropped, not persisted and not a reconnect.
+                    log.warning("candle_rejected", symbol=symbol, error_type=type(exc).__name__)
+                    continue
                 await self.store.upsert_candles([candle])
                 self._last_candle[symbol] = max(previous or row[0], row[0])
 

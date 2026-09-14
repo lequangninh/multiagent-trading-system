@@ -11,13 +11,11 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import yaml
-
 from swarm.backtest.data import LOOKBACK_HINT, load_dataset
 from swarm.backtest.engine import LOOKBACK, Backtester, Params
 from swarm.backtest.metrics import write_outputs
 from swarm.data.store import Store
-from swarm.main import validate_config
+from swarm.main import load_config
 from swarm.risk.gate import Limits
 
 DEAD_BANNER = "\n" + "!" * 72 + "\nSTRATEGY DEAD: fees exceed gross alpha\n" + "!" * 72 + "\n"
@@ -68,7 +66,7 @@ def summarize(result, coverage) -> str:
 
 
 async def run(args) -> int:
-    config = validate_config(yaml.safe_load(args.config.read_text()))
+    config = load_config(args.config)
     if args.symbol not in config["universe"]:
         print(f"{args.symbol} is not in the configured universe", file=sys.stderr)
         return 1

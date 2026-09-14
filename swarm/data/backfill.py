@@ -6,10 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import ccxt.async_support as ccxt
-import yaml
 
 from swarm.data.store import Store
-from swarm.main import validate_config
+from swarm.main import DEFAULT_SETTINGS, load_config
 from swarm.models import Candle
 
 
@@ -47,7 +46,7 @@ async def backfill(symbol: str, days: int, exchange, store: Store) -> int:
 
 
 async def run(args) -> None:
-    config = validate_config(yaml.safe_load(args.config.read_text()))
+    config = load_config(args.config)
     exchange = ccxt.binance(
         {
             "enableRateLimit": True,
@@ -71,9 +70,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--days", type=int, required=True)
-    parser.add_argument(
-        "--config", type=Path, default=Path(__file__).resolve().parents[2] / "config/settings.yaml"
-    )
+    parser.add_argument("--config", type=Path, default=DEFAULT_SETTINGS)
     args = parser.parse_args()
     if args.days <= 0:
         parser.error("--days must be positive")

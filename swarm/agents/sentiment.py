@@ -17,7 +17,7 @@ from pydantic import ConfigDict, Field, create_model
 
 from swarm.agents.base import MarketState
 from swarm.data.store import Store
-from swarm.main import validate_config
+from swarm.main import load_config
 from swarm.models import Model, Signal
 
 log = structlog.get_logger()
@@ -231,7 +231,7 @@ class Sentiment:
 
 
 async def dry_run(args):
-    config = validate_config(yaml.safe_load(args.config.read_text()))
+    config = load_config(args.config)
     options = yaml.safe_load(args.sentiment_config.read_text())
     store = Store(config["database"]["dsn"])
     try:

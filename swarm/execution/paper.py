@@ -25,6 +25,36 @@ from swarm.telemetry import NullTelemetry, Telemetry
 log = structlog.get_logger()
 
 
+async def publish(bus, channel, message, telemetry) -> bool:
+    """A bus outage degrades to 'no new orders': nothing downstream is ever forced."""
+    try:
+        await bus.publish(channel, message)
+        return True
+    except Exception as exc:
+        log.warning("bus_publish_failed", channel=channel.name, error_type=type(exc).__name__)
+        await telemetry.event("bus_error", detail=f"publish {channel.name}: {type(exc).__name__}")
+        return False
+
+
+async def consume_decisions(bus, oms, telemetry, *, backoff_s=(1, 30)):
+    """Subscribe forever; reconnect with exponential backoff when Redis goes away."""
+    delay = backoff_s[0]
+    while True:
+        try:
+            async with bus.subscribe(DECISIONS) as messages:
+                delay = backoff_s[0]
+                async for decision in messages:
+                    if decision.proposal.symbol in oms.symbols:
+                        await oms.submit(decision)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("decision_bus_down", error_type=type(exc).__name__, retry_s=delay)
+            await telemetry.event("bus_error", detail=f"subscribe: {type(exc).__name__}")
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, backoff_s[1])
+
+
 async def cycle(oms, store, consensus, bus, telemetry=None):
     telemetry = telemetry or NullTelemetry()
     for symbol in oms.symbols:
@@ -51,7 +81,7 @@ async def cycle(oms, store, consensus, bus, telemetry=None):
                 continue
             if s is not None:
                 signals.append(s)
-                await bus.publish(SIGNALS, s)
+                await publish(bus, SIGNALS, s, telemetry)
         row = await store.pool.fetchrow(
             """SELECT * FROM sentiment_scores
             WHERE symbol=$1 AND NOT is_mock AND ts <= $2 ORDER BY ts DESC LIMIT 1""",
@@ -70,12 +100,13 @@ async def cycle(oms, store, consensus, bus, telemetry=None):
                 ttl_s=600,
             )
             signals.append(s)
-            await bus.publish(SIGNALS, s)
+            await publish(bus, SIGNALS, s, telemetry)
         proposal = await consensus.evaluate(symbol, now, signals)
         if proposal:
-            await bus.publish(PROPOSALS, proposal)
+            await publish(bus, PROPOSALS, proposal, telemetry)
             # OMS rechecks authoritative account/risk state before every submission.
-            await bus.publish(
+            await publish(
+                bus,
                 DECISIONS,
                 RiskDecision(
                     proposal=proposal,
@@ -83,6 +114,7 @@ async def cycle(oms, store, consensus, bus, telemetry=None):
                     size_quote=proposal.size_quote,
                     reason="pending_oms_risk_recheck",
                 ),
+                telemetry,
             )
 
 
@@ -135,14 +167,9 @@ async def run(config, duration, smoke_order=False):
                 consensus = Consensus(
                     store.pool, settings["weights"], settings["threshold"], settings["base_size"]
                 )
-                async with bus.subscribe(DECISIONS) as messages:
-
-                    async def consume():
-                        async for decision in messages:
-                            if decision.proposal.symbol in oms.symbols:
-                                await oms.submit(decision)
-
-                    worker = asyncio.create_task(consume())
+                if True:  # Block kept for minimal diff; the consumer now owns its subscription.
+                    worker = asyncio.create_task(consume_decisions(bus, oms, telemetry))
+                    await asyncio.sleep(0)  # Let the subscription attempt start before publishing.
                     if smoke_order:
                         symbol = oms.symbols[0]
                         base = symbol.split("/")[0]
@@ -169,8 +196,8 @@ async def run(config, duration, smoke_order=False):
                     deadline = asyncio.get_running_loop().time() + duration
                     while asyncio.get_running_loop().time() < deadline:
                         if worker.done():
-                            await worker
-                            raise RuntimeError("Decision bus disconnected")
+                            await worker  # Only a non-Exception escape can end it; surface it.
+                            raise RuntimeError("Decision consumer exited unexpectedly")
                         await oms.reconcile()
                         await oms.exits()
                         try:

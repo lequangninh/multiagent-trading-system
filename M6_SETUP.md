@@ -2,7 +2,7 @@
 
 Only Binance Spot Testnet credentials are accepted by design. Configure them on
 your Mac, not in chat or source code. Do not use live exchange keys. Environment
-variables are read directly; .env files are not loaded automatically.
+variables are read directly, or seeded from a git-ignored `.env` (see README).
 
 ## Configure credentials in macOS zsh
 

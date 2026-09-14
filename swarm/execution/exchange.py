@@ -1,13 +1,13 @@
 """Binance Spot Testnet only; the final HTTP boundary is allowlisted."""
 
 import asyncio
-import os
 from urllib.parse import urlsplit
 
 import ccxt.async_support as ccxt
 import ccxt.pro as ccxtpro
 
 from swarm.main import TESTNET_HOSTS, validate_config
+from swarm.secrets import require
 
 
 class TestnetBinance(ccxt.binance):
@@ -20,13 +20,8 @@ class TestnetBinance(ccxt.binance):
 
 def create_exchange(config):
     validate_config(config)
-    key = os.environ.get("BINANCE_TESTNET_API_KEY", "")
-    secret = os.environ.get("BINANCE_TESTNET_API_SECRET", "")
-    if any(
-        not v.strip() or v.lower() in {"placeholder", "changeme", "your_key", "your_secret"}
-        for v in (key, secret)
-    ):
-        raise ValueError("Set BINANCE_TESTNET_API_KEY and BINANCE_TESTNET_API_SECRET locally")
+    key = require("BINANCE_TESTNET_API_KEY")
+    secret = require("BINANCE_TESTNET_API_SECRET")
     exchange = TestnetBinance(
         {
             "apiKey": key,

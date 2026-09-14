@@ -250,3 +250,40 @@ anonymously, and every panel query plus the annotation query executes through
 risk_decisions are empty until the next paper run, so those panels show "No
 data" rather than paper-trading history; the M6 10-minute testnet run remains
 the user's pending gate and will populate them.
+
+# M9 hardening
+
+Secrets: `swarm/secrets.py` seeds os.environ from a git-ignored `.env` (real
+environment wins, empty values mean unset), refuses placeholder values for every
+known secret name at startup, and expands `${VAR}` in settings with no defaults.
+`swarm.main.load_config` is the single startup path for all entrypoints (main,
+data, backfill, sentiment, backtest, monitor, report). The database password left
+settings.yaml and docker-compose.yml; compose reads the same `.env`, so the DB and
+the app cannot disagree. A local `.env` with the value the existing pgdata volume
+was initialised with was created on the user's Mac so nothing broke; `.env.example`
+carries `changeme`, which is refused. `paper runner stopped` now prints the message
+for our own ValueError/RuntimeError strings; provider exceptions stay type-only.
+
+Degrade and recover: the decision consumer owns its Redis subscription and
+reconnects with exponential backoff (1s to 30s) instead of ending the runner; bus
+publish failures in the cycle are logged, recorded as `bus_error` events and skipped,
+so a Redis outage means no new entries while reconciliation and managed exits
+continue. The feed drops a malformed OHLCV row (zero or inverted prices) with a
+`candle_rejected` log instead of reconnecting. Exchange 5xx already degraded via
+reconcile -> ready=False; the chaos test proves orders resume once reads succeed. A
+500 bps book is stopped twice: liquidity confidence 0 zeroes consensus, and the OMS
+slippage curve makes the gate reject even a forced ALLOW.
+
+Tests: `tests/chaos/` covers the four spec faults with doubles (FlakyBus, a
+clock-driven OutageExchange, a zero-close exchange). `tests/test_risk_properties.py`
+uses hypothesis: over random proposal sequences, limits and equity, reserved gross
+and per-symbol exposure never exceed the limits, RESIZE never exceeds the request,
+REJECT is always size 0, spot never goes short; and sizing never exceeds the safe
+depth under the slippage cap. Hypothesis found a fixture bug (duplicate depth
+levels), not a gate bug. README.md documents paper mode, backtest, dashboard, and
+"What this does not do".
+
+M9 gate: `uv run pytest -q` 172 passed (21 new); `ruff check .` clean. Not covered:
+a real Redis process kill (the FlakyBus double stands in), a real Binance outage,
+and rotation of an already-initialised Postgres password (requires recreating the
+volume; documented in .env.example).

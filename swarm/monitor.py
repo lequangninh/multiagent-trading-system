@@ -14,7 +14,6 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import structlog
-import yaml
 from pydantic import Field
 
 from swarm.models import Model
@@ -197,7 +196,7 @@ async def main_async(config, once=False):
 
 
 def main(argv=None):
-    from swarm.main import validate_config
+    from swarm.main import load_config
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="run one check and exit")
@@ -205,7 +204,7 @@ def main(argv=None):
         "--config", type=Path, default=Path(__file__).resolve().parents[1] / "config/settings.yaml"
     )
     args = parser.parse_args(argv)
-    config = validate_config(yaml.safe_load(args.config.read_text()))
+    config = load_config(args.config)
     asyncio.run(main_async(config, args.once))
 
 

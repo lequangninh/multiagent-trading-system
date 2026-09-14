@@ -102,6 +102,13 @@ class Repository:
                     [(n["source"], n["url"], self.is_mock) for n in news],
                 )
 
+    async def record_call(self, ts, model, articles, input_chars, output_chars, ok, cost):
+        from swarm.telemetry import Telemetry
+
+        await Telemetry(self.pool).llm_call(
+            ts, model, self.is_mock, articles, input_chars, output_chars, ok, cost
+        )
+
     async def latest(self, now):
         return await self.pool.fetch(
             """SELECT DISTINCT ON (symbol) * FROM sentiment_scores
@@ -125,9 +132,14 @@ class Sentiment:
         timeout_s=30,
         ttl_s=600,
         batch_limit=50,
+        usd_per_1m_input_tokens=0.0,
+        usd_per_1m_output_tokens=0.0,
     ):
         if interval_s < 300 or not 0 < timeout_s < interval_s or ttl_s <= 0 or batch_limit <= 0:
             raise ValueError("invalid sentiment limits; interval must be >=300 seconds")
+        if min(usd_per_1m_input_tokens, usd_per_1m_output_tokens) < 0:
+            raise ValueError("token prices must be nonnegative")
+        self.prices = (usd_per_1m_input_tokens, usd_per_1m_output_tokens)
         self.repository, self.client = repository, client
         self.model, self.interval_s = model, interval_s
         self.timeout_s, self.ttl_s, self.batch_limit = timeout_s, ttl_s, batch_limit
@@ -155,11 +167,18 @@ class Sentiment:
                         }
                         for n in news
                     ]
-                    async with asyncio.timeout(self.timeout_s):
-                        raw = await self.client.complete(
-                            model=self.model, news=payload, schema=self.response.model_json_schema()
-                        )
-                    parsed = self.response.model_validate_json(raw)
+                    raw, ok = "", False
+                    try:
+                        async with asyncio.timeout(self.timeout_s):
+                            raw = await self.client.complete(
+                                model=self.model,
+                                news=payload,
+                                schema=self.response.model_json_schema(),
+                            )
+                        parsed = self.response.model_validate_json(raw)
+                        ok = True
+                    finally:
+                        await self._record(now, payload, raw if isinstance(raw, str) else "", ok)
                     scores = {s: getattr(parsed, s) for s in self.response.model_fields}
                     await self.repository.save(scores, news, now, self.model)
                 rows = await self.repository.latest(now)
@@ -175,6 +194,18 @@ class Sentiment:
                 self.cache = {}
                 log.warning("sentiment_error", error_type=type(exc).__name__)
                 return 0
+
+    async def _record(self, now, payload, raw, ok):
+        """Cost is an estimate (tokens ~ chars/4) from configured list prices; never raises."""
+        record = getattr(self.repository, "record_call", None)
+        if record is None:
+            return
+        input_chars = len(json.dumps(payload))
+        cost = (input_chars * self.prices[0] + len(raw) * self.prices[1]) / 4 / 1_000_000
+        try:
+            await record(now, self.model, len(payload), input_chars, len(raw), ok, cost)
+        except Exception as exc:
+            log.warning("llm_call_record_failed", error_type=type(exc).__name__)
 
     async def analyze(self, symbol: str, state: MarketState):
         entry = self.cache.get(symbol)

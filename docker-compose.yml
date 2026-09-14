@@ -23,6 +23,14 @@ services:
   grafana:
     image: grafana/grafana:latest
     ports: ["127.0.0.1:3000:3000"]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-swarm_local_only}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/json/swarm-trader.json
+    depends_on:
+      timescaledb:
+        condition: service_healthy
     volumes:
       - grafana_data:/var/lib/grafana
       - ./dashboards:/etc/grafana/provisioning:ro

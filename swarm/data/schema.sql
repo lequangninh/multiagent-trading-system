@@ -84,3 +84,42 @@ CREATE TABLE IF NOT EXISTS fills (
     payload jsonb NOT NULL,
     published boolean NOT NULL DEFAULT false
 );
+
+-- M8 observability. Written by swarm.telemetry; read by Grafana, the monitor and reports.
+CREATE TABLE IF NOT EXISTS equity_snapshots (
+    ts timestamptz PRIMARY KEY,
+    equity double precision NOT NULL,
+    cash double precision NOT NULL,
+    inventory_value double precision NOT NULL
+);
+CREATE TABLE IF NOT EXISTS risk_decisions (
+    id bigserial PRIMARY KEY,
+    ts timestamptz NOT NULL,
+    symbol text NOT NULL,
+    verdict text NOT NULL,
+    reason text NOT NULL,
+    size_quote double precision NOT NULL,
+    proposal_score double precision NOT NULL,
+    source text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS risk_decisions_ts_idx ON risk_decisions (ts DESC);
+CREATE TABLE IF NOT EXISTS llm_calls (
+    id bigserial PRIMARY KEY,
+    ts timestamptz NOT NULL,
+    model text NOT NULL,
+    is_mock boolean NOT NULL,
+    articles integer NOT NULL,
+    input_chars integer NOT NULL,
+    output_chars integer NOT NULL,
+    ok boolean NOT NULL,
+    estimated_cost_usd double precision NOT NULL
+);
+CREATE INDEX IF NOT EXISTS llm_calls_ts_idx ON llm_calls (ts DESC);
+CREATE TABLE IF NOT EXISTS events (
+    id bigserial PRIMARY KEY,
+    ts timestamptz NOT NULL,
+    kind text NOT NULL,
+    symbol text,
+    detail text NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS events_kind_ts_idx ON events (kind, ts DESC);

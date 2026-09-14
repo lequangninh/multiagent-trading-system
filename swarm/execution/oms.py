@@ -11,6 +11,7 @@ import structlog
 from swarm.execution.exchange import read_retry, safe_error
 from swarm.models import Fill, Proposal, RiskDecision
 from swarm.risk.gate import Limits, PortfolioState, check, slippage_curve
+from swarm.telemetry import NullTelemetry
 
 log = structlog.get_logger()
 ACTIVE = {"intent", "unknown", "open", "partially_filled"}
@@ -63,9 +64,13 @@ def empty_state():
 
 
 class OMS:
-    def __init__(self, exchange, repository, symbols, limits=None, *, clock=now_utc):
+    def __init__(
+        self, exchange, repository, symbols, limits=None, *, clock=now_utc, telemetry=None
+    ):
         self.exchange, self.repository, self.symbols = exchange, repository, symbols
         self.limits = limits or Limits()
+        self.telemetry = telemetry or NullTelemetry()
+        self.marked = None  # Latest marked equity/cash/inventory from _portfolio.
         self.clock, self.lock = clock, asyncio.Lock()
         self.state = empty_state()
         self.ready = False
@@ -100,6 +105,9 @@ class OMS:
         # Account is restricted to configured universe + USDT for valuation.
         positions = {s: float(total.get(s.split("/")[0], 0)) * self._mid(s) for s in self.symbols}
         equity = float(total.get("USDT", 0)) + sum(positions.values())
+        self.marked = dict(
+            equity=equity, cash=float(total.get("USDT", 0)), inventory_value=sum(positions.values())
+        )
         for order in self.state["orders"].values():
             if order["status"] in ACTIVE and order["side"] == "buy":
                 positions[order["symbol"]] += (
@@ -164,6 +172,7 @@ class OMS:
                 await self._market_snapshot()
                 state = self._portfolio(p)
                 verdict = check(p, state, self.limits)
+                await self.telemetry.risk_decision(verdict, "oms", self.clock())
                 await (
                     self._save()
                 )  # Persist daily baseline and drawdown latch before any I/O order.
@@ -366,6 +375,13 @@ class OMS:
                 self._portfolio(probe)
                 await self._save(new_fills)
                 self.ready = unresolved == 0
+                await self.telemetry.equity(self.clock(), **self.marked)
+                if discrepancies or unresolved:
+                    await self.telemetry.event(
+                        "reconcile_discrepancy",
+                        detail=f"corrected={discrepancies} unresolved={unresolved}",
+                        ts=self.clock(),
+                    )
                 log.log(
                     30 if discrepancies or unresolved else 20,
                     "reconcile",

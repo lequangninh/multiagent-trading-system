@@ -202,3 +202,51 @@ without real sentiment, as noted in M6.
 Ideas, not implemented: synthetic-book fallback when no snapshot exists (would
 fabricate liquidity), tuning `base_size`, multi-symbol CLI runs (engine supports
 it), 5m decision cadence to speed long replays.
+
+# M8 observability
+
+Four things the panels need were only logged before, never stored. New tables in
+schema.sql: `equity_snapshots` (OMS writes marked equity every reconcile),
+`risk_decisions` (every authoritative OMS-side gate verdict with its reason),
+`llm_calls` (per sentiment batch: article count, chars in/out, ok flag, estimated
+cost) and `events` (agent_exception, reconcile_discrepancy, alert). Writes go
+through `swarm.telemetry.Telemetry`, which swallows and logs its own failures so a
+database hiccup cannot alter the trade path; `NullTelemetry` is the default, so
+existing OMS test doubles are untouched. Paper `cycle` now isolates a failing
+agent (it abstains, others still vote) and records the exception as an event.
+
+LLM cost is an estimate: tokens ~ chars/4 times list prices in
+config/sentiment.yaml (`usd_per_1m_*_tokens`, default 0). Mock calls cost 0.
+No real provider is connected, so the panel only shows mock rows until M4's
+provider is wired with the user's keys.
+
+Grafana: `dashboards/` is mounted as the provisioning root. `datasources/`
+declares the TimescaleDB source (uid `timescale`, password from
+`POSTGRES_PASSWORD`, same default as the DB service); `dashboards/provider.yaml`
+loads `dashboards/json/swarm-trader.json` (11 panels, generated once, committed as
+plain JSON). Anonymous Viewer access is enabled on the loopback-bound port so the
+dashboard renders without login; admin/admin remains Grafana's default.
+Per-agent hit rate joins each directional vote with the 1m close 30 minutes later;
+filters (direction 0) are excluded, so scanner/liquidity never appear there.
+
+Alerts (`swarm/monitor.py`): gather -> pure `evaluate` -> notify. Feed stale
+>60s per symbol (or no snapshots), UTC-day drawdown >2% from equity_snapshots,
+>5 agent exceptions in the last minute, and each reconcile_discrepancy event
+once. Each alert logs at WARNING, writes an `events` row (shown as dashboard
+annotations) and POSTs JSON to `alerts.webhook_url` or `SWARM_ALERT_WEBHOOK` if
+set; webhook failures are logged only. Per-key cooldown 600s. The paper runner
+starts the monitor; `python -m swarm.monitor` (or `--once`) runs it standalone
+for feed-only periods. Running both duplicates alerts; documented, not prevented.
+
+`make report` writes `reports/paper_<date>.md` for the last 7 days: equity and
+drawdown, orders/fills/fees, positions, per-agent hit rate, risk verdicts by
+reason, feed coverage, events, LLM usage. Makefile also has test, lint,
+backtest and monitor targets.
+
+Verification: 151 tests pass (14 new); Ruff clean. Grafana 13.2.1 reports
+datasource "Database Connection OK", the dashboard is provisioned and readable
+anonymously, and every panel query plus the annotation query executes through
+`/api/ds/query` without error against the live database. equity_snapshots and
+risk_decisions are empty until the next paper run, so those panels show "No
+data" rather than paper-trading history; the M6 10-minute testnet run remains
+the user's pending gate and will populate them.

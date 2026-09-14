@@ -4,3 +4,6 @@ interval_s: 300
 timeout_s: 30
 ttl_s: 600
 batch_limit: 50
+# Cost estimate only (tokens ~ chars/4). Set to the provider's list price per 1M tokens.
+usd_per_1m_input_tokens: 0.0
+usd_per_1m_output_tokens: 0.0

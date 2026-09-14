@@ -18,12 +18,15 @@ from swarm.execution.exchange import TestnetStream, create_exchange
 from swarm.execution.oms import OMS, now_utc
 from swarm.execution.repository import Repository
 from swarm.models import Proposal, RiskDecision, Signal
+from swarm.monitor import Monitor, Thresholds
 from swarm.risk.gate import Limits
+from swarm.telemetry import NullTelemetry, Telemetry
 
 log = structlog.get_logger()
 
 
-async def cycle(oms, store, consensus, bus):
+async def cycle(oms, store, consensus, bus, telemetry=None):
+    telemetry = telemetry or NullTelemetry()
     for symbol in oms.symbols:
         now = now_utc()
         state = MarketState(
@@ -37,7 +40,15 @@ async def cycle(oms, store, consensus, bus):
         )
         signals = []
         for agent in (Scanner(), FairValue(), Liquidity(), Momentum()):
-            s = await agent.analyze(symbol, state)
+            try:
+                s = await agent.analyze(symbol, state)
+            except Exception as exc:
+                # One failing agent abstains; the others still vote. Counted for alerting.
+                log.warning("agent_exception", agent=agent.name, error_type=type(exc).__name__)
+                await telemetry.event(
+                    "agent_exception", symbol, f"{agent.name}: {type(exc).__name__}", now
+                )
+                continue
             if s is not None:
                 signals.append(s)
                 await bus.publish(SIGNALS, s)
@@ -83,6 +94,7 @@ async def run(config, duration, smoke_order=False):
     bus = Bus(config["redis"]["url"])
     worker = None
     feed_task = None
+    monitor_task = None
     feed = None
     try:
         await store.connect()
@@ -99,6 +111,8 @@ async def run(config, duration, smoke_order=False):
         )
         feed = MarketFeed(config["universe"], store, exchange=stream)
         feed_task = asyncio.create_task(feed.run())
+        monitor = Monitor(store.pool, config["universe"], Thresholds(**config.get("alerts", {})))
+        monitor_task = asyncio.create_task(monitor.run())
         if any(
             s not in exchange.markets or not exchange.market(s)["spot"] for s in config["universe"]
         ):
@@ -109,7 +123,10 @@ async def run(config, duration, smoke_order=False):
             if not locked:
                 raise RuntimeError("Another paper OMS owns this database/account")
             repo = Repository(connection)
-            oms = OMS(exchange, repo, config["universe"], Limits(**config["risk"]))
+            telemetry = Telemetry(connection)
+            oms = OMS(
+                exchange, repo, config["universe"], Limits(**config["risk"]), telemetry=telemetry
+            )
             try:
                 await oms.start()
                 if not oms.ready:
@@ -159,7 +176,7 @@ async def run(config, duration, smoke_order=False):
                         try:
                             async with oms.lock:
                                 await repo.publish_fills(bus)
-                            await cycle(oms, store, consensus, bus)
+                            await cycle(oms, store, consensus, bus, telemetry)
                         except Exception as exc:
                             oms.ready = False
                             log.warning("paper_cycle_paused", error_type=type(exc).__name__)
@@ -195,9 +212,10 @@ async def run(config, duration, smoke_order=False):
                     await asyncio.gather(worker, return_exceptions=True)
                 await connection.execute("SELECT pg_advisory_unlock(734061)")
     finally:
-        if feed_task is not None:
-            feed_task.cancel()
-            await asyncio.gather(feed_task, return_exceptions=True)
+        for task in (feed_task, monitor_task):
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
         if feed is not None:
             await feed.close()
         await asyncio.gather(exchange.close(), bus.aclose(), store.close())

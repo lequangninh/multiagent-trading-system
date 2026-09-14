@@ -26,6 +26,13 @@ backtest:
   initial_cash: 10000
   fee_rate: 0.001
   output_dir: backtests
+alerts:
+  interval_s: 30
+  cooldown_s: 600
+  feed_stale_s: 60
+  daily_drawdown_pct: 0.02
+  agent_exceptions_per_min: 5
+  webhook_url: null   # or set SWARM_ALERT_WEBHOOK; POSTs JSON, never blocks trading
 redis:
   url: redis://localhost:6379/0
 database:
